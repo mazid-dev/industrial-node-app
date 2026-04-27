@@ -1,32 +1,57 @@
 pipeline {
     agent any
+
     environment {
-        DOCKER_IMAGE = 'mazidhossain/industrial-node-app'
+        DOCKER_IMAGE = "mazidhossain/industrial-node-app:latest"
+        // আপনার বিল্ড নাম্বার অনুযায়ী ট্যাগ সেট করা (ইমেজ ক্যাশিং এড়াতে এটি সেরা উপায়)
+        BUILD_TAG = "v${env.BUILD_NUMBER}"
     }
+
     stages {
-        stage('Checkout') { steps { checkout scm } }
-        stage('Build') { steps { sh "docker build -t ${DOCKER_IMAGE}:${BUILD_NUMBER} ." } }
-        stage('Push') {
+        stage('Checkout') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'docker-hub-cred', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
-                    sh "echo $PASS | docker login -u $USER --password-stdin"
-                    sh "docker tag ${DOCKER_IMAGE}:${BUILD_NUMBER} ${DOCKER_IMAGE}:latest"
-                    sh "docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}"
-                    sh "docker push ${DOCKER_IMAGE}:latest"
+                git branch: 'main', url: 'https://github.com/mazid-dev/industrial-node-app.git'
+            }
+        }
+
+        stage('Docker Build & Push') {
+            steps {
+                script {
+                    // ইমেজ বিল্ড (v1, v2 ট্যাগ সহ)
+                    sh "docker build -t ${DOCKER_IMAGE} ."
+                    sh "docker tag ${DOCKER_IMAGE} mazidhossain/industrial-node-app:${BUILD_TAG}"
+                    
+                    withCredentials([usernamePassword(credentialsId: 'docker-hub-creds', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
+                        sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
+                        // latest এবং ভার্সন ট্যাগ দুটোই পুশ করা
+                        sh "docker push ${DOCKER_IMAGE}"
+                        sh "docker push mazidhossain/industrial-node-app:${BUILD_TAG}"
+                    }
                 }
             }
         }
-        stage('Deploy') {
-    steps {
-        withKubeConfig([credentialsId: 'kubeconfig']) {
-            // ১. কন্টেইনারের ইমেজ আপডেট করা (ইমেজ ট্যাগ ৪ বা লেটেস্ট যাই হোক)
-            sh "kubectl set image deployment/industrial-app app=mazidhossain/industrial-node-app:4"
-            
-            // ২. ফোর্স রিস্টার্ট (এটি নিশ্চিত করবে আপনার নতুন কোড ব্রাউজারে দেখা যাচ্ছে)
-            sh "kubectl rollout restart deployment/industrial-app"
-            
-            // ৩. স্ট্যাটাস চেক
-            sh "kubectl rollout status deployment/industrial-app"
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    withKubeConfig([credentialsId: 'kubeconfig']) {
+                        // ১. কনফিগারেশন ফাইল অ্যাপ্লাই
+                        sh "kubectl apply -f k8s/deployment.yaml"
+                        
+                        // ২. ইমেজের নতুন ট্যাগ সেট করা (এটিই আপনার অটো-আপডেট নিশ্চিত করবে)
+                        sh "kubectl set image deployment/industrial-app app=mazidhossain/industrial-node-app:${BUILD_TAG}"
+                        
+                        // ৩. রোলআউট স্ট্যাটাস চেক
+                        sh "kubectl rollout status deployment/industrial-app"
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            sh "docker logout"
         }
     }
 }
