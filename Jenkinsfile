@@ -17,12 +17,16 @@ pipeline {
             }
         }
         stage('Deploy') {
-            steps {
-                withKubeConfig([credentialsId: 'kubeconfig']) {
-                    sh "kubectl set image deployment/industrial-app app=${DOCKER_IMAGE}:${BUILD_NUMBER}"
-                    sh "kubectl rollout status deployment/industrial-app"
-                }
-            }
+    steps {
+        withKubeConfig([credentialsId: 'kubeconfig']) {
+            // ১. কন্টেইনারের ইমেজ আপডেট করা (ইমেজ ট্যাগ ৪ বা লেটেস্ট যাই হোক)
+            sh "kubectl set image deployment/industrial-app app=mazidhossain/industrial-node-app:4"
+            
+            // ২. ফোর্স রিস্টার্ট (এটি নিশ্চিত করবে আপনার নতুন কোড ব্রাউজারে দেখা যাচ্ছে)
+            sh "kubectl rollout restart deployment/industrial-app"
+            
+            // ৩. স্ট্যাটাস চেক
+            sh "kubectl rollout status deployment/industrial-app"
         }
     }
 }
